@@ -1,0 +1,172 @@
+---
+title: "svm"
+author: "Xue Wu"
+date: "11/29/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(mvtnorm)
+library(quadprog)
+library(ggplot2)
+library(Matrix)
+library(e1071)
+```
+
+## Hard Margin
+### (1). generate dataset (separable)
+```{r}
+set.seed(100)
+n<- 100
+p<- 2
+x<- rmvnorm(n,mean=rep(0,p),sigma=(diag(1,p,p)+(1-diag(1,p,p))*0.15))
+z<- rmvnorm(n, mean=rep(6, p), sigma = (diag(1,p,p)+(1-diag(1,p,p))*0.1)) 
+obs<- rbind(x, z)
+obs<- apply(obs, 2, scale)
+y<- rep(c(-1,1), each=n)
+data<- data.frame(obs=obs, y=y)
+library(ggplot2)
+ggplot(data=data, aes(x=obs.1,y=obs.2, label=as.factor(y))) + geom_point(aes(color=as.factor(y)))
+```
+
+### (2). writing my svm model 
+```{r}
+obs<- scale(obs)
+n<- n*2
+#y<- as.matrix(y)
+#obs<- cbind(1, obs)
+D<- (y*obs) %*% t(y*obs)
+d<- rep(1, n)
+ineq<- diag(1, nrow=n)
+A<- t(as.matrix(rbind(y, ineq)))
+meq<- 1
+b<- rep(0, ncol(A))
+D.pd<- nearPD(D)
+sol<-solve.QP(Dmat = D.pd$mat, dvec = d, Amat = A, bvec = b, meq = 1, factorized = FALSE) 
+alpha<- sol$solution
+beta<- t(as.matrix(alpha*y)) %*% obs
+beta
+
+```
+
+```{r}
+ind<- which(abs(alpha)>1e-3)
+beta0<- mean(y[ind]-as.matrix(obs)%*%t(beta))
+beta0
+```
+
+```{r}
+data<-data.frame(obs,y=as.factor(y))
+plot(data[,-3],col=(y+3)/2, pch=19); abline(h=0,v=0,lty=3)
+points(data[ind,c(1,2)],col="blue",cex=2) # show the support vectors
+
+# get parameters of hiperplane
+w <-beta
+b <- beta0
+# in this 2D case the hyperplane is the line w[1,1]*x1 + w[1,2]*x2 + b = 0
+abline(a=-b/w[1,2], b=-w[1,1]/w[1,2], col="blue", lty=3)
+abline(a=(1-b)/w[1,2], b=-w[1,1]/w[1,2], col='red', lty=3)
+abline(a=(-1-b)/w[1,2], b=-w[1,1]/w[1,2], col='red', lty=3)
+
+```
+
+### (3). implement hard margin svm via R function svm.
+```{r}
+svm.model<- svm(y ~ .,data=data,kernel="linear",cost=1e10,scale = F)
+coef(svm.model)
+```
+```{r}
+plot(data[,-3],col=(y+3)/2, pch=19); abline(h=0,v=0,lty=3)
+points(data[svm.model$index,c(1,2)],col="blue",cex=2) # show the support vectors
+
+# get parameters of hiperplane
+w <- t(svm.model$coefs) %*% svm.model$SV
+b <- -svm.model$rho
+# in this 2D case the hyperplane is the line w[1,1]*x1 + w[1,2]*x2 + b = 0
+abline(a=-b/w[1,2], b=-w[1,1]/w[1,2], col="blue", lty=3)
+abline(a=(1-b)/w[1,2], b=-w[1,1]/w[1,2], col='red', lty=3)
+abline(a=(-1-b)/w[1,2], b=-w[1,1]/w[1,2], col='red', lty=3)
+```
+
+## Soft Margin
+### (1). generate dataset (non-separable)
+
+```{r}
+set.seed(100)
+n<- 100
+p<- 2
+x<- rmvnorm(n,mean=rep(3,p),sigma=(diag(1,p,p)+(1-diag(1,p,p))*0.15))
+z<- rmvnorm(n, mean=rep(6, p), sigma = (diag(1,p,p)+(1-diag(1,p,p))*0.1)) 
+obs<- rbind(x, z)
+obs<- apply(obs, 2, scale)
+y<- rep(c(-1,1), each=n)
+data<- data.frame(obs=obs, y=y)
+library(ggplot2)
+ggplot(data=data, aes(x=obs.1,y=obs.2, label=as.factor(y))) + geom_point(aes(color=as.factor(y)))
+```
+
+### (2). Writing my soft margin svm model
+```{r}
+x=obs
+data<-data.frame(x=x,y=y)
+n<- nrow(data)
+D<- (data$y)*as.matrix(data[,-3]) %*% t((data$y)*as.matrix(data[,-3]))
+d<- t(as.matrix(rep(1, n)))
+ineq1<- diag(1, nrow=n)
+ineq2<- diag(-1, nrow=n)
+A<- t(as.matrix(rbind(rbind(data$y, ineq1), ineq2)))
+meq<- 1
+c<- 1
+b<- t(as.matrix(c(rep(0, n+1), rep(-c, n))))
+D.pd<- nearPD(D)
+sol<-solve.QP(Dmat = D.pd$mat, dvec = d, Amat = A, bvec = b, meq = 1) 
+alpha<- sol$solution
+#beta<- t(as.matrix(alpha*data$y)) %*% as.matrix(data[,-3])
+ind<- which(abs(alpha)>1e-2)
+
+beta<- t(as.matrix(alpha[ind]*data$y[ind])) %*% as.matrix(data[ind,-3])
+beta
+beta0<- mean(data$y[ind]-as.matrix(data[ind,-3])%*%t(beta))
+beta0
+X_sv = x[ind,]
+Y_sv = y[ind]
+```
+
+```{r}
+data<-data.frame(x,y=as.factor(y))
+plot(data[,-3],col=(y+3)/2, pch=19); abline(h=0,v=0,lty=3)
+points(data[ind,c(1,2)],col="blue",cex=2) # show the support vectors
+
+# get parameters of hiperplane
+w <-beta
+b <- beta0
+# in this 2D case the hyperplane is the line w[1,1]*x1 + w[1,2]*x2 + b = 0
+abline(a=-b/w[1,2], b=-w[1,1]/w[1,2], col="blue", lty=3)
+abline(a=(1-b)/w[1,2], b=-w[1,1]/w[1,2], col='red', lty=3)
+abline(a=(-1-b)/w[1,2], b=-w[1,1]/w[1,2], col='red', lty=3)
+
+```
+
+### (3). implement soft margin svm via R function svm.
+```{r}
+data<-data.frame(x,y=as.factor(y))
+svm.model<-svm(y ~ .,data=data,kernel="linear",cost=1,scale = F, type='C-classification')
+svm.model$index
+drop(t(svm.model$coefs)%*%x[svm.model$index,])
+coef(svm.model)
+```
+
+
+```{r}
+plot(data[,-3],col=(y+3)/2, pch=19); abline(h=0,v=0,lty=3)
+points(data[svm.model$index,c(1,2)],col="blue",cex=2) # show the support vectors
+
+# get parameters of hiperplane
+w <- t(svm.model$coefs) %*% svm.model$SV
+b <- -svm.model$rho
+# in this 2D case the hyperplane is the line w[1,1]*x1 + w[1,2]*x2 + b = 0
+abline(a=-b/w[1,2], b=-w[1,1]/w[1,2], col="blue", lty=3)
+abline(a=(1-b)/w[1,2], b=-w[1,1]/w[1,2], col='red', lty=3)
+abline(a=(-1-b)/w[1,2], b=-w[1,1]/w[1,2], col='red', lty=3)
+```
