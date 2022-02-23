@@ -83,9 +83,7 @@ ppr_function<-function(X,Y){
         }
       }
     }
-    
-    
-    
+
     de<-matrix(nrow=N,ncol=1)
     de<-matrix(beta[2],nrow=N,ncol=1)+de_mat%*%beta[3:N,1]
     
@@ -94,11 +92,7 @@ ppr_function<-function(X,Y){
     W<-diag(c(de))
     
     w_new<-ginv(t(X)%*%W%*%X)%*%t(X)%*%W%*%s
-    
-    #w_new<-c()
-    #w_new[1]<-(B*C1-B*C2)/(A1*A2)
-    #w_new[1]<-(B*C1-B*C2)/(A1*A2)
-    #w_new[2]<-(C2-B*w_new[1])/A2
+
     d<-sqrt(sum((w-w_new)^2))
     w<-w_new
     w<-w/sqrt(sum(w^2))
